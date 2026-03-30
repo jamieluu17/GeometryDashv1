@@ -377,7 +377,9 @@
       ctx.fillText(text, canvas.width / 2, canvas.height / 2);
     }
 
-    function drawBackgroundTitle() {
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
       ctx.save();
       ctx.fillStyle = "#ffffff";
       ctx.strokeStyle = "#00e5ff";
@@ -393,12 +395,7 @@
       ctx.strokeText(titleText, titleX, titleY);
       ctx.fillText(titleText, titleX, titleY);
       ctx.restore();
-    }
 
-    function render() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      drawBackgroundTitle();
       drawGround();
       drawPlayer();
       for (const spike of spikes) {
