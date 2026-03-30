@@ -78,8 +78,7 @@
     const PLAYER_X_RATIO = 0.2;
     const GROUND_Y_RATIO = 0.85;
 
-    const LEVEL_START_DELAY_MS = 1500;
-    const SECOND_SECTION_DELAY_MS = 2500;
+    const LEVEL_TARGET_DURATION_MS = 30000;
     const DEATH_MESSAGE_MS = 800;
 
     const SPIKE_WIDTH = 42;
@@ -87,6 +86,13 @@
     const DOUBLE_SPIKE_GAP = 0;
     const SPIKE_HITBOX_INSET_X = 8;
     const SPIKE_HITBOX_INSET_Y = 6;
+
+    const FIREWORK_LAUNCH_INTERVAL_MS = 480;
+    const FIREWORK_ROCKET_SIZE = 8;
+    const FIREWORK_PARTICLE_SIZE = 6;
+    const FIREWORK_PARTICLE_COUNT = 18;
+    const FIREWORK_GRAVITY = 0.22;
+    const FIREWORK_COLORS = ["#ffffff", "#00e5ff", "#ffe066", "#ff5f5f", "#7cff8f"];
 
     // =========================
     // Canvas setup
@@ -117,6 +123,10 @@
     let spikes = [];
     let levelEvents = [];
     let levelTimeMs = 0;
+    let fireworkRockets = [];
+    let fireworkParticles = [];
+    let victoryTimeMs = 0;
+    let nextFireworkLaunchMs = 0;
 
     let gameOver = false;
     let deathRestartAt = 0;
@@ -130,27 +140,182 @@
     // =========================
     // Level scripting
     // =========================
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function randomBetween(min, max) {
+      return min + Math.random() * (max - min);
+    }
+
+    function getSpawnTravelTimeMs() {
+      const playerX = Math.floor(canvas.width * PLAYER_X_RATIO);
+      const spawnDistance = canvas.width + 120 + SPIKE_WIDTH - playerX;
+      return (spawnDistance / SCROLL_SPEED) * FRAME_TIME_MS;
+    }
+
     function createLevelEvents() {
       const spawnX = () => canvas.width + 120;
+      const travelTimeMs = getSpawnTravelTimeMs();
+      const events = [];
+      const patternGap = SPIKE_WIDTH + DOUBLE_SPIKE_GAP;
 
-      return [
-        {
-          timeMs: LEVEL_START_DELAY_MS,
-          fired: false,
-          action: () => {
-            spikes.push({ x: spawnX(), width: SPIKE_WIDTH, height: SPIKE_HEIGHT });
-          },
-        },
-        {
-          timeMs: LEVEL_START_DELAY_MS + SECOND_SECTION_DELAY_MS,
+      function schedulePattern(encounterTimeMs, offsets) {
+        const spawnTimeMs = Math.max(0, encounterTimeMs - travelTimeMs);
+        events.push({
+          timeMs: spawnTimeMs,
           fired: false,
           action: () => {
             const firstX = spawnX();
-            spikes.push({ x: firstX, width: SPIKE_WIDTH, height: SPIKE_HEIGHT });
-            spikes.push({ x: firstX + SPIKE_WIDTH + DOUBLE_SPIKE_GAP, width: SPIKE_WIDTH, height: SPIKE_HEIGHT });
+            for (const offset of offsets) {
+              spikes.push({
+                x: firstX + offset,
+                width: SPIKE_WIDTH,
+                height: SPIKE_HEIGHT,
+              });
+            }
           },
-        },
+        });
+      }
+
+      const encounterPlan = [
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.12, offsets: [0] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.20, offsets: [0] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.28, offsets: [0, 170] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.36, offsets: [0, patternGap] },
+
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.44, offsets: [0, 150, 300] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.51, offsets: [0, patternGap] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.58, offsets: [0] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.65, offsets: [0, patternGap, patternGap * 2] },
+
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.73, offsets: [0] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.80, offsets: [0, 195] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.86, offsets: [0, patternGap] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.92, offsets: [0, 170] },
+        { timeMs: LEVEL_TARGET_DURATION_MS - 650, offsets: [0, patternGap, patternGap * 2, patternGap * 3, patternGap * 4] },
       ];
+
+      for (const pattern of encounterPlan) {
+        schedulePattern(pattern.timeMs, pattern.offsets);
+      }
+
+      events.sort((a, b) => a.timeMs - b.timeMs);
+      return events;
+    }
+
+    function resetFireworks() {
+      fireworkRockets = [];
+      fireworkParticles = [];
+      victoryTimeMs = 0;
+      nextFireworkLaunchMs = 0;
+    }
+
+    function launchFireworkPair() {
+      const groundY = getGroundY();
+      const burstCenterX = canvas.width / 2;
+      const burstRangeX = canvas.width * 0.16;
+      const burstX = clamp(randomBetween(
+        burstCenterX - burstRangeX,
+        burstCenterX + burstRangeX
+      ), canvas.width * 0.24, canvas.width * 0.76);
+      const burstY = randomBetween(canvas.height * 0.16, canvas.height * 0.42);
+      const launchY = groundY - randomBetween(40, 90);
+      const colors = [
+        FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)],
+        FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)],
+      ];
+
+      fireworkRockets.push(
+        {
+          x: -FIREWORK_ROCKET_SIZE,
+          y: launchY,
+          vx: randomBetween(4.8, 6.4),
+          vy: randomBetween(-13.8, -11.2),
+          burstX,
+          burstY,
+          color: colors[0],
+        },
+        {
+          x: canvas.width + FIREWORK_ROCKET_SIZE,
+          y: launchY,
+          vx: -randomBetween(4.8, 6.4),
+          vy: randomBetween(-13.8, -11.2),
+          burstX,
+          burstY: burstY + randomBetween(-24, 24),
+          color: colors[1],
+        }
+      );
+    }
+
+    function burstFirework(rocket) {
+      const colorChoices = [rocket.color];
+      const altColor = FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)];
+      if (altColor !== rocket.color) {
+        colorChoices.push(altColor);
+      }
+
+      for (let i = 0; i < FIREWORK_PARTICLE_COUNT; i += 1) {
+        const angle = (Math.PI * 2 * i) / FIREWORK_PARTICLE_COUNT;
+        const speed = randomBetween(1.8, 5.8);
+        fireworkParticles.push({
+          x: rocket.x,
+          y: rocket.y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - randomBetween(0.4, 1.2),
+          size: FIREWORK_PARTICLE_SIZE,
+          color: colorChoices[i % colorChoices.length],
+          lifeMs: 0,
+          maxLifeMs: randomBetween(700, 1050),
+        });
+      }
+    }
+
+    function updateFireworks() {
+      victoryTimeMs += FRAME_TIME_MS;
+
+      while (victoryTimeMs >= nextFireworkLaunchMs) {
+        launchFireworkPair();
+        nextFireworkLaunchMs += FIREWORK_LAUNCH_INTERVAL_MS;
+      }
+
+      const activeRockets = [];
+      for (const rocket of fireworkRockets) {
+        rocket.x += rocket.vx;
+        rocket.y += rocket.vy;
+        rocket.vy += 0.18;
+
+        const reachedBurstPoint = rocket.y <= rocket.burstY || (
+          rocket.vx > 0 ? rocket.x >= rocket.burstX : rocket.x <= rocket.burstX
+        );
+
+        if (reachedBurstPoint) {
+          burstFirework(rocket);
+        } else {
+          activeRockets.push(rocket);
+        }
+      }
+      fireworkRockets = activeRockets;
+
+      const activeParticles = [];
+      for (const particle of fireworkParticles) {
+        particle.lifeMs += FRAME_TIME_MS;
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.vy += FIREWORK_GRAVITY;
+
+        if (particle.lifeMs < particle.maxLifeMs) {
+          activeParticles.push(particle);
+        }
+      }
+      fireworkParticles = activeParticles;
+    }
+
+    function beginVictorySequence() {
+      levelComplete = true;
+      resetFireworks();
+      launchFireworkPair();
+      nextFireworkLaunchMs = FIREWORK_LAUNCH_INTERVAL_MS;
     }
 
     function resetLevel() {
@@ -168,6 +333,7 @@
       gameOver = false;
       deathRestartAt = 0;
       levelComplete = false;
+      resetFireworks();
 
       lastInputTime = -Infinity;
       wasPrevInputDouble = false;
@@ -321,8 +487,8 @@
     }
 
     function checkLevelComplete() {
-      const secondEvent = levelEvents[1];
-      if (!secondEvent || !secondEvent.fired || levelComplete) {
+      const lastEvent = levelEvents[levelEvents.length - 1];
+      if (!lastEvent || !lastEvent.fired || levelComplete) {
         return;
       }
 
@@ -330,7 +496,7 @@
       const playerLeft = player.x;
       const allPastPlayer = spikes.every((spike) => spike.x + spike.width < playerLeft);
       if (allPastPlayer) {
-        levelComplete = true;
+        beginVictorySequence();
       }
     }
 
@@ -377,6 +543,32 @@
       ctx.fillText(text, canvas.width / 2, canvas.height / 2);
     }
 
+    function drawStatusText() {
+      if (gameOver) {
+        drawOverlayText("You Died - Restarting...");
+        return;
+      }
+
+      if (!levelComplete) {
+        return;
+      }
+
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#00e5ff";
+      ctx.lineWidth = 4;
+      ctx.shadowColor = "rgba(0, 229, 255, 0.9)";
+      ctx.shadowBlur = 14;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "64px 'Creepster', cursive";
+      ctx.strokeText("Congrats, We Won!", canvas.width / 2, canvas.height * 0.45);
+      ctx.fillText("Congrats, We Won!", canvas.width / 2, canvas.height * 0.45);
+      ctx.font = "34px 'Creepster', cursive";
+      ctx.fillText("Level cleared in about 30 seconds", canvas.width / 2, canvas.height * 0.54);
+      ctx.restore();
+    }
+
     function drawBackgroundTitle() {
       ctx.save();
       ctx.fillStyle = "#ffffff";
@@ -395,6 +587,34 @@
       ctx.restore();
     }
 
+    function drawFireworks() {
+      ctx.save();
+
+      for (const rocket of fireworkRockets) {
+        ctx.fillStyle = rocket.color;
+        ctx.fillRect(
+          Math.round(rocket.x),
+          Math.round(rocket.y),
+          FIREWORK_ROCKET_SIZE,
+          FIREWORK_ROCKET_SIZE
+        );
+      }
+
+      for (const particle of fireworkParticles) {
+        const alpha = 1 - (particle.lifeMs / particle.maxLifeMs);
+        ctx.globalAlpha = clamp(alpha, 0, 1);
+        ctx.fillStyle = particle.color;
+        ctx.fillRect(
+          Math.round(particle.x),
+          Math.round(particle.y),
+          particle.size,
+          particle.size
+        );
+      }
+
+      ctx.restore();
+    }
+
     function render() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -404,12 +624,8 @@
       for (const spike of spikes) {
         drawSpike(spike);
       }
-
-      if (gameOver) {
-        drawOverlayText("You Died - Restarting...");
-      } else if (levelComplete) {
-        drawOverlayText("Level Complete");
-      }
+      drawFireworks();
+      drawStatusText();
     }
 
     // =========================
@@ -427,7 +643,7 @@
       }
 
       if (levelComplete) {
-        // Freeze gameplay on completion as requested.
+        updateFireworks();
         return;
       }
 
