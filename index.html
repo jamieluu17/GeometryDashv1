@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Geometry Dash - Level 1 Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Creepster&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: "Creepster", Arial, Helvetica, sans-serif;
+    }
+
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      cursor: pointer;
+    }
+
+    #restartBtn {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 10;
+      border: 2px solid #fff;
+      background: #000;
+      color: #fff;
+      padding: 10px 16px;
+      font-size: 28px;
+      line-height: 1;
+      font-family: "Creepster", cursive;
+      cursor: pointer;
+    }
+
+    #restartBtn:hover {
+      background: #111;
+    }
+  </style>
+</head>
+<body>
+  <button id="restartBtn" type="button" aria-label="Restart level">Restart</button>
+  <canvas id="gameCanvas"></canvas>
+
+  <script>
+    "use strict";
+
+    // =========================
+    // Tunable constants
+    // =========================
+    const FPS = 60;
+    const FRAME_TIME_MS = 1000 / FPS;
+
+    const GRAVITY = 0.7;
+    const JUMP_VELOCITY = -12;
+    const HIGH_JUMP_VELOCITY = -18;
+    const DOUBLE_INPUT_MS = 250;
+
+    const SCROLL_SPEED = 6;
+    const PLAYER_SIZE = 40;
+    const PLAYER_X_RATIO = 0.2;
+    const GROUND_Y_RATIO = 0.85;
+
+    const LEVEL_START_DELAY_MS = 1500;
+    const SECOND_SECTION_DELAY_MS = 2500;
+    const DEATH_MESSAGE_MS = 800;
+
+    const SPIKE_WIDTH = 42;
+    const SPIKE_HEIGHT = 42;
+    const DOUBLE_SPIKE_GAP = 0;
+    const SPIKE_HITBOX_INSET_X = 8;
+    const SPIKE_HITBOX_INSET_Y = 6;
+
+    // =========================
+    // Canvas setup
+    // =========================
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const restartBtn = document.getElementById("restartBtn");
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    window.addEventListener("resize", resizeCanvas);
+    resizeCanvas();
+
+    // =========================
+    // Game state
+    // =========================
+    let player = {
+      x: 0,
+      y: 0,
+      size: PLAYER_SIZE,
+      vy: 0,
+      isOnGround: true,
+    };
+
+    let spikes = [];
+    let levelEvents = [];
+    let levelTimeMs = 0;
+
+    let gameOver = false;
+    let deathRestartAt = 0;
+    let levelComplete = false;
+
+    let lastInputTime = -Infinity;
+    let wasPrevInputDouble = false;
+    let canUpgradeJump = false;
+    let lastGroundJumpAt = -Infinity;
+
+    // =========================
+    // Level scripting
+    // =========================
+    function createLevelEvents() {
+      const spawnX = () => canvas.width + 120;
+
+      return [
+        {
+          timeMs: LEVEL_START_DELAY_MS,
+          fired: false,
+          action: () => {
+            spikes.push({ x: spawnX(), width: SPIKE_WIDTH, height: SPIKE_HEIGHT });
+          },
+        },
+        {
+          timeMs: LEVEL_START_DELAY_MS + SECOND_SECTION_DELAY_MS,
+          fired: false,
+          action: () => {
+            const firstX = spawnX();
+            spikes.push({ x: firstX, width: SPIKE_WIDTH, height: SPIKE_HEIGHT });
+            spikes.push({ x: firstX + SPIKE_WIDTH + DOUBLE_SPIKE_GAP, width: SPIKE_WIDTH, height: SPIKE_HEIGHT });
+          },
+        },
+      ];
+    }
+
+    function resetLevel() {
+      const groundY = Math.floor(canvas.height * GROUND_Y_RATIO);
+
+      player.x = Math.floor(canvas.width * PLAYER_X_RATIO);
+      player.y = groundY - player.size;
+      player.vy = 0;
+      player.isOnGround = true;
+
+      spikes = [];
+      levelEvents = createLevelEvents();
+      levelTimeMs = 0;
+
+      gameOver = false;
+      deathRestartAt = 0;
+      levelComplete = false;
+
+      lastInputTime = -Infinity;
+      wasPrevInputDouble = false;
+      canUpgradeJump = false;
+      lastGroundJumpAt = -Infinity;
+    }
+
+    // =========================
+    // Input handling
+    // =========================
+    function tryJump(isHighJump) {
+      if (gameOver || levelComplete) {
+        return;
+      }
+
+      // If player already started a normal jump, allow a fast second tap
+      // to convert it into the higher jump for real human double-taps.
+      if (!player.isOnGround) {
+        if (isHighJump && canUpgradeJump && (performance.now() - lastGroundJumpAt) <= DOUBLE_INPUT_MS) {
+          player.vy = HIGH_JUMP_VELOCITY;
+          canUpgradeJump = false;
+        }
+        return;
+      }
+
+      player.vy = isHighJump ? HIGH_JUMP_VELOCITY : JUMP_VELOCITY;
+      player.isOnGround = false;
+      canUpgradeJump = !isHighJump;
+      lastGroundJumpAt = performance.now();
+    }
+
+    function handleJumpInput() {
+      const now = performance.now();
+      const delta = now - lastInputTime;
+      const isDoubleInput = delta <= DOUBLE_INPUT_MS;
+
+      // On triple-input bursts, only the first qualifying pair gets high jump.
+      // Any extra rapid input is treated as normal input.
+      if (isDoubleInput && !wasPrevInputDouble) {
+        tryJump(true);
+        wasPrevInputDouble = true;
+      } else {
+        tryJump(false);
+        wasPrevInputDouble = false;
+      }
+
+      lastInputTime = now;
+    }
+
+    // Space bar controls jumping. Press twice quickly for high jump.
+    window.addEventListener("keydown", (event) => {
+      if (event.code !== "Space" || event.repeat) {
+        return;
+      }
+
+      event.preventDefault();
+      handleJumpInput();
+    });
+
+    restartBtn.addEventListener("click", () => {
+      resetLevel();
+    });
+
+    // =========================
+    // Physics & collision
+    // =========================
+    function getGroundY() {
+      return Math.floor(canvas.height * GROUND_Y_RATIO);
+    }
+
+    function updatePlayer() {
+      const groundY = getGroundY();
+
+      player.vy += GRAVITY;
+      player.y += player.vy;
+
+      const floorY = groundY - player.size;
+      if (player.y >= floorY) {
+        player.y = floorY;
+        player.vy = 0;
+        player.isOnGround = true;
+        canUpgradeJump = false;
+      }
+    }
+
+    function updateSpikes() {
+      for (const spike of spikes) {
+        spike.x -= SCROLL_SPEED;
+      }
+
+      spikes = spikes.filter((spike) => spike.x + spike.width > -5);
+    }
+
+    function runLevelEvents() {
+      for (const evt of levelEvents) {
+        if (!evt.fired && levelTimeMs >= evt.timeMs) {
+          evt.fired = true;
+          evt.action();
+        }
+      }
+    }
+
+    function playerRect() {
+      return {
+        x: player.x,
+        y: player.y,
+        w: player.size,
+        h: player.size,
+      };
+    }
+
+    function spikeHitbox(spike) {
+      // Slightly inset hitbox so collisions feel fairer near spike edges.
+      const groundY = getGroundY();
+      return {
+        x: spike.x + SPIKE_HITBOX_INSET_X,
+        y: groundY - spike.height + SPIKE_HITBOX_INSET_Y,
+        w: Math.max(2, spike.width - SPIKE_HITBOX_INSET_X * 2),
+        h: Math.max(2, spike.height - SPIKE_HITBOX_INSET_Y),
+      };
+    }
+
+    function overlaps(a, b) {
+      return a.x < b.x + b.w &&
+        a.x + a.w > b.x &&
+        a.y < b.y + b.h &&
+        a.y + a.h > b.y;
+    }
+
+    function checkCollision() {
+      const p = playerRect();
+      for (const spike of spikes) {
+        const hit = spikeHitbox(spike);
+        if (overlaps(p, hit)) {
+          gameOver = true;
+          deathRestartAt = performance.now() + DEATH_MESSAGE_MS;
+          return;
+        }
+      }
+    }
+
+    function checkLevelComplete() {
+      const secondEvent = levelEvents[1];
+      if (!secondEvent || !secondEvent.fired || levelComplete) {
+        return;
+      }
+
+      // Complete once all spikes have moved past the player.
+      const playerLeft = player.x;
+      const allPastPlayer = spikes.every((spike) => spike.x + spike.width < playerLeft);
+      if (allPastPlayer) {
+        levelComplete = true;
+      }
+    }
+
+    // =========================
+    // Rendering
+    // =========================
+    function drawGround() {
+      const groundY = getGroundY();
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      ctx.lineTo(canvas.width, groundY);
+      ctx.stroke();
+    }
+
+    function drawPlayer() {
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(player.x, player.y, player.size, player.size);
+    }
+
+    function drawSpike(spike) {
+      const groundY = getGroundY();
+      const left = spike.x;
+      const right = spike.x + spike.width;
+      const topX = spike.x + spike.width / 2;
+      const topY = groundY - spike.height;
+
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.moveTo(left, groundY);
+      ctx.lineTo(topX, topY);
+      ctx.lineTo(right, groundY);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawOverlayText(text) {
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "48px 'Creepster', cursive";
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+    }
+
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      drawGround();
+      drawPlayer();
+      for (const spike of spikes) {
+        drawSpike(spike);
+      }
+
+      if (gameOver) {
+        drawOverlayText("You Died - Restarting...");
+      } else if (levelComplete) {
+        drawOverlayText("Level Complete");
+      }
+    }
+
+    // =========================
+    // Main loop
+    // =========================
+    let previousFrameTime = performance.now();
+    let accumulatorMs = 0;
+
+    function update() {
+      if (gameOver) {
+        if (performance.now() >= deathRestartAt) {
+          resetLevel();
+        }
+        return;
+      }
+
+      if (levelComplete) {
+        // Freeze gameplay on completion as requested.
+        return;
+      }
+
+      levelTimeMs += FRAME_TIME_MS;
+      runLevelEvents();
+      updatePlayer();
+      updateSpikes();
+      checkCollision();
+      checkLevelComplete();
+    }
+
+    function gameLoop(now) {
+      // Clamp long frame gaps (tab switches / lag spikes) to avoid giant catch-up bursts.
+      const frameDelta = Math.min(now - previousFrameTime, 100);
+      previousFrameTime = now;
+      accumulatorMs += frameDelta;
+
+      while (accumulatorMs >= FRAME_TIME_MS) {
+        update();
+        accumulatorMs -= FRAME_TIME_MS;
+      }
+
+      render();
+      requestAnimationFrame(gameLoop);
+    }
+
+    resetLevel();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
