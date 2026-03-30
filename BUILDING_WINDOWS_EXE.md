@@ -37,4 +37,3 @@ Output will be created in `dist/`, including:
 
 - If `npm install` fails with registry/network policy errors, the build cannot run in that environment.
 - If you need just one file to copy machine-to-machine, use the `portable` `.exe` output.
-- If GitHub Actions reports a lockfile/cache error, this workflow intentionally uses `npm install` (not `npm ci`) and does not require a committed `package-lock.json`.
