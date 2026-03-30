@@ -178,22 +178,24 @@
         });
       }
 
+      const doubleCluster = [0, patternGap];
+      const tripleCluster = [0, patternGap, patternGap * 2];
       const encounterPlan = [
         { timeMs: LEVEL_TARGET_DURATION_MS * 0.12, offsets: [0] },
         { timeMs: LEVEL_TARGET_DURATION_MS * 0.20, offsets: [0] },
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.28, offsets: [0, 170] },
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.36, offsets: [0, patternGap] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.28, offsets: doubleCluster },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.36, offsets: [0] },
 
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.44, offsets: [0, 150, 300] },
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.51, offsets: [0, patternGap] },
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.58, offsets: [0] },
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.65, offsets: [0, patternGap, patternGap * 2] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.44, offsets: doubleCluster },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.51, offsets: [0] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.58, offsets: doubleCluster },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.65, offsets: tripleCluster },
 
         { timeMs: LEVEL_TARGET_DURATION_MS * 0.73, offsets: [0] },
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.80, offsets: [0, 195] },
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.86, offsets: [0, patternGap] },
-        { timeMs: LEVEL_TARGET_DURATION_MS * 0.92, offsets: [0, 170] },
-        { timeMs: LEVEL_TARGET_DURATION_MS - 650, offsets: [0, patternGap, patternGap * 2, patternGap * 3, patternGap * 4] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.80, offsets: doubleCluster },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.86, offsets: [0] },
+        { timeMs: LEVEL_TARGET_DURATION_MS * 0.92, offsets: doubleCluster },
+        { timeMs: LEVEL_TARGET_DURATION_MS - 650, offsets: tripleCluster },
       ];
 
       for (const pattern of encounterPlan) {
