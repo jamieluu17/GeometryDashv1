@@ -227,6 +227,17 @@
       handleJumpInput();
     });
 
+    // Touchpad / mouse controls: tap or click the game area to jump.
+    // Double-tap / double-click quickly for a high jump.
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      handleJumpInput();
+    });
+
     restartBtn.addEventListener("click", () => {
       resetLevel();
     });
@@ -366,9 +377,28 @@
       ctx.fillText(text, canvas.width / 2, canvas.height / 2);
     }
 
+    function drawBackgroundTitle() {
+      ctx.save();
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#00e5ff";
+      ctx.lineWidth = 4;
+      ctx.shadowColor = "rgba(0, 229, 255, 0.9)";
+      ctx.shadowBlur = 18;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "bold 86px 'Creepster', cursive";
+      const titleX = canvas.width / 2;
+      const titleY = canvas.height * 0.28;
+      const titleText = "Jame's Geometry Dash Game";
+      ctx.strokeText(titleText, titleX, titleY);
+      ctx.fillText(titleText, titleX, titleY);
+      ctx.restore();
+    }
+
     function render() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      drawBackgroundTitle();
       drawGround();
       drawPlayer();
       for (const spike of spikes) {
